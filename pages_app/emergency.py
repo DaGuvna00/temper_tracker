@@ -1,0 +1,117 @@
+import streamlit as st
+
+from core.analytics import get_emergency_intervention, get_emergency_mantra
+from core.constants import REPAIR_OPTIONS, TRIGGER_OPTIONS
+from core.database import add_log
+from core.state import reset_emergency_session, reset_trigger_flow
+
+
+def render_emergency(adaptive_interventions):
+    st.markdown("<div class='tt-emergency-title'>🚨 Emergency Mode</div>", unsafe_allow_html=True)
+    st.caption("For the heat of the moment. Do less. Slow the reaction first. Solve later.")
+
+    if not st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
+        st.markdown(
+            "<div class='tt-danger'><div class='tt-big-text'>"
+            "<strong>First move:</strong> stop talking if you can. Create space. Lower the damage."
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Start Emergency Reset", use_container_width=True):
+            reset_emergency_session(start=True)
+            st.rerun()
+
+    if st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
+        step = st.session_state.trigger_step
+        intervention = get_emergency_intervention(step, adaptive_interventions)
+        mantra = get_emergency_mantra(step)
+
+        st.session_state.trigger_intervention = intervention["name"]
+        st.session_state.trigger_mantra = mantra
+
+        st.caption(f"Strategy {step + 1}")
+        st.markdown("### Right now, do this:")
+        st.markdown(f"## {intervention['name']}")
+
+        for item in intervention["instructions"]:
+            st.markdown(f"- {item}")
+
+        st.markdown(
+            f"""
+            <div class='tt-mantra'>
+                🧠 <strong>Repeat:</strong> {mantra}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+        c1, c2 = st.columns(2)
+
+        with c1:
+            if st.button("✅ I’m calmer", use_container_width=True):
+                st.session_state.trigger_outcome = "Stayed calm"
+                st.rerun()
+
+        with c2:
+            if st.button("➡️ Not yet — try another", use_container_width=True):
+                st.session_state.trigger_step += 1
+                st.rerun()
+
+        if st.button("🔴 It escalated", use_container_width=True):
+            st.session_state.trigger_outcome = "Blew up"
+            st.rerun()
+
+        st.divider()
+        if st.button("Cancel Emergency Mode", use_container_width=True):
+            reset_trigger_flow()
+            st.rerun()
+
+    if st.session_state.get("trigger_outcome"):
+        st.markdown("## Quick Emergency Log")
+        st.caption("Tiny log only. No essay needed.")
+
+        with st.form("emergency_log_form"):
+            trigger = st.selectbox("What triggered it?", TRIGGER_OPTIONS)
+            c1, c2 = st.columns(2)
+            intensity_before = c1.slider("Intensity before", 1, 10, 6)
+
+            default_after = 4 if st.session_state.trigger_outcome == "Stayed calm" else 8
+            intensity_after = c2.slider("Intensity now", 1, 10, default_after)
+
+            repaired = st.selectbox("Repair/apology needed?", REPAIR_OPTIONS)
+            notes = st.text_area("Optional note", placeholder="What helped? What made it harder?")
+
+            submitted = st.form_submit_button("Save Emergency Log", use_container_width=True)
+
+        if submitted:
+            strategy_used = st.session_state.get("trigger_intervention")
+            mantra_used = st.session_state.get("trigger_mantra")
+            full_notes = notes
+
+            if mantra_used:
+                full_notes = f"Mantra: {mantra_used}" + (f"\n\n{notes}" if notes else "")
+
+            add_log(
+                trigger,
+                intensity_before,
+                st.session_state.trigger_outcome,
+                full_notes,
+                "Emergency mode",
+                strategy_used,
+                intensity_after,
+                repaired,
+            )
+
+            if st.session_state.trigger_outcome == "Stayed calm":
+                st.success("Logged as a win.")
+            else:
+                st.error("Logged. Data, not shame.")
+
+            reset_trigger_flow()
+            st.rerun()
+
+        if st.button("Skip logging and close Emergency Mode", use_container_width=True):
+            reset_trigger_flow()
+            st.rerun()
