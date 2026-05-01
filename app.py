@@ -5,6 +5,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+try:
+    from supabase import create_client
+except ImportError:
+    create_client = None
+
 # -----------------------------
 # App Config
 # -----------------------------
@@ -157,11 +162,74 @@ st.markdown(
 # -----------------------------
 # Database
 # -----------------------------
+def get_secret(name, default=None):
+    """Safely read Streamlit secrets locally or in Streamlit Cloud."""
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+SUPABASE_URL = get_secret("SUPABASE_URL")
+SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY")
+USE_SUPABASE = bool(SUPABASE_URL and SUPABASE_ANON_KEY and create_client is not None)
+
+
+def get_supabase_client():
+    """Create a Supabase client for the current Streamlit session.
+
+    Do not cache this client globally. Each user needs their own auth session
+    so Row Level Security can correctly isolate their data.
+    """
+    if not USE_SUPABASE:
+        return None
+
+    client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+    access_token = st.session_state.get("sb_access_token")
+    refresh_token = st.session_state.get("sb_refresh_token")
+    if access_token and refresh_token:
+        try:
+            client.auth.set_session(access_token, refresh_token)
+        except Exception:
+            st.session_state.pop("sb_access_token", None)
+            st.session_state.pop("sb_refresh_token", None)
+            st.session_state.pop("sb_user", None)
+
+    return client
+
+
+def current_user_id():
+    user = st.session_state.get("sb_user")
+    if not user:
+        return None
+    return user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+
+
+def store_auth_session(auth_response):
+    session = getattr(auth_response, "session", None)
+    user = getattr(auth_response, "user", None)
+
+    if session:
+        st.session_state.sb_access_token = session.access_token
+        st.session_state.sb_refresh_token = session.refresh_token
+
+    if user:
+        st.session_state.sb_user = {
+            "id": user.id,
+            "email": user.email,
+        }
+
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
 
 def init_db():
+    """Initialize local SQLite only. Supabase tables are created with SQL in Supabase."""
+    if USE_SUPABASE:
+        return
+
     with get_connection() as conn:
         conn.execute(
             """
@@ -209,18 +277,49 @@ def init_db():
 
 
 def add_log(trigger, intensity, outcome, notes="", source="Manual log", strategy=None, intensity_after=None, repaired="Not needed"):
+    payload = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "source": source,
+        "trigger": trigger,
+        "intensity": int(intensity),
+        "intensity_after": None if intensity_after is None else int(intensity_after),
+        "outcome": outcome,
+        "strategy": strategy,
+        "repaired": repaired,
+        "notes": notes,
+    }
+
+    if USE_SUPABASE:
+        payload["user_id"] = current_user_id()
+        get_supabase_client().table("logs").insert(payload).execute()
+        return
+
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO logs (timestamp, source, trigger, intensity, intensity_after, outcome, strategy, repaired, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (datetime.now().isoformat(timespec="seconds"), source, trigger, intensity, intensity_after, outcome, strategy, repaired, notes),
+            (payload["timestamp"], source, trigger, payload["intensity"], payload["intensity_after"], outcome, strategy, repaired, notes),
         )
         conn.commit()
 
 
 def update_log(log_id, trigger, intensity, intensity_after, outcome, strategy, repaired, notes):
+    payload = {
+        "trigger": trigger,
+        "intensity": int(intensity),
+        "intensity_after": None if intensity_after is None else int(intensity_after),
+        "outcome": outcome,
+        "strategy": strategy,
+        "repaired": repaired,
+        "notes": notes,
+    }
+
+    if USE_SUPABASE:
+        get_supabase_client().table("logs").update(payload).eq("id", int(log_id)).eq("user_id", current_user_id()).execute()
+        return
+
     with get_connection() as conn:
         conn.execute(
             """
@@ -228,18 +327,38 @@ def update_log(log_id, trigger, intensity, intensity_after, outcome, strategy, r
             SET trigger=?, intensity=?, intensity_after=?, outcome=?, strategy=?, repaired=?, notes=?
             WHERE id=?
             """,
-            (trigger, intensity, intensity_after, outcome, strategy, repaired, notes, log_id),
+            (trigger, int(intensity), payload["intensity_after"], outcome, strategy, repaired, notes, int(log_id)),
         )
         conn.commit()
 
 
 def delete_log(log_id):
+    if USE_SUPABASE:
+        get_supabase_client().table("logs").delete().eq("id", int(log_id)).eq("user_id", current_user_id()).execute()
+        return
+
     with get_connection() as conn:
-        conn.execute("DELETE FROM logs WHERE id=?", (log_id,))
+        conn.execute("DELETE FROM logs WHERE id=?", (int(log_id),))
         conn.commit()
 
 
 def save_daily_checkin(checkin_date, sleep_quality, stress_level, energy_level, hunger_level, caffeine_level, overwhelm_level, notes):
+    payload = {
+        "checkin_date": str(checkin_date),
+        "sleep_quality": int(sleep_quality),
+        "stress_level": int(stress_level),
+        "energy_level": int(energy_level),
+        "hunger_level": int(hunger_level),
+        "caffeine_level": int(caffeine_level),
+        "overwhelm_level": int(overwhelm_level),
+        "notes": notes,
+    }
+
+    if USE_SUPABASE:
+        payload["user_id"] = current_user_id()
+        get_supabase_client().table("daily_checkins").upsert(payload, on_conflict="user_id,checkin_date").execute()
+        return
+
     with get_connection() as conn:
         conn.execute(
             """
@@ -254,16 +373,22 @@ def save_daily_checkin(checkin_date, sleep_quality, stress_level, energy_level, 
                 overwhelm_level=excluded.overwhelm_level,
                 notes=excluded.notes
             """,
-            (str(checkin_date), sleep_quality, stress_level, energy_level, hunger_level, caffeine_level, overwhelm_level, notes),
+            (str(checkin_date), int(sleep_quality), int(stress_level), int(energy_level), int(hunger_level), int(caffeine_level), int(overwhelm_level), notes),
         )
         conn.commit()
 
 
 def load_logs():
-    with get_connection() as conn:
-        df = pd.read_sql_query("SELECT * FROM logs ORDER BY timestamp DESC", conn)
+    if USE_SUPABASE:
+        response = get_supabase_client().table("logs").select("*").eq("user_id", current_user_id()).order("timestamp", desc=True).execute()
+        df = pd.DataFrame(response.data or [])
+    else:
+        with get_connection() as conn:
+            df = pd.read_sql_query("SELECT * FROM logs ORDER BY timestamp DESC", conn)
+
     if df.empty:
         return df
+
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["date"] = df["timestamp"].dt.date
     df["hour"] = df["timestamp"].dt.hour
@@ -272,21 +397,36 @@ def load_logs():
 
 
 def load_checkins():
-    with get_connection() as conn:
-        df = pd.read_sql_query("SELECT * FROM daily_checkins ORDER BY checkin_date DESC", conn)
+    if USE_SUPABASE:
+        response = get_supabase_client().table("daily_checkins").select("*").eq("user_id", current_user_id()).order("checkin_date", desc=True).execute()
+        df = pd.DataFrame(response.data or [])
+    else:
+        with get_connection() as conn:
+            df = pd.read_sql_query("SELECT * FROM daily_checkins ORDER BY checkin_date DESC", conn)
+
     if df.empty:
         return df
+
     df["checkin_date"] = pd.to_datetime(df["checkin_date"]).dt.date
     return df
 
 
 def delete_old_triggered_button_logs():
+    if USE_SUPABASE:
+        get_supabase_client().table("logs").delete().eq("trigger", "Triggered button").eq("user_id", current_user_id()).execute()
+        return
+
     with get_connection() as conn:
         conn.execute("DELETE FROM logs WHERE trigger = 'Triggered button'")
         conn.commit()
 
 
 def delete_all_logs():
+    if USE_SUPABASE:
+        get_supabase_client().table("logs").delete().eq("user_id", current_user_id()).execute()
+        get_supabase_client().table("daily_checkins").delete().eq("user_id", current_user_id()).execute()
+        return
+
     with get_connection() as conn:
         conn.execute("DELETE FROM logs")
         conn.execute("DELETE FROM daily_checkins")
@@ -294,6 +434,72 @@ def delete_all_logs():
 
 
 init_db()
+
+# -----------------------------
+# Login / Signup
+# -----------------------------
+def require_login():
+    """Require Supabase email/password login when Supabase is enabled."""
+    if not USE_SUPABASE:
+        return
+
+    if current_user_id():
+        return
+
+    st.title("Temper Tracker")
+    st.caption("Sign in so your logs follow you across phone and computer.")
+
+    login_tab, signup_tab = st.tabs(["Log in", "Create account"])
+
+    with login_tab:
+        with st.form("login_form"):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_password")
+            submitted = st.form_submit_button("Log in", use_container_width=True)
+
+        if submitted:
+            try:
+                response = get_supabase_client().auth.sign_in_with_password({
+                    "email": email.strip(),
+                    "password": password,
+                })
+                store_auth_session(response)
+                st.success("Logged in.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+
+    with signup_tab:
+        with st.form("signup_form"):
+            new_email = st.text_input("Email", key="signup_email")
+            new_password = st.text_input("Password", type="password", key="signup_password")
+            confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm")
+            submitted = st.form_submit_button("Create account", use_container_width=True)
+
+        if submitted:
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+            elif len(new_password) < 6:
+                st.error("Use at least 6 characters.")
+            else:
+                try:
+                    response = get_supabase_client().auth.sign_up({
+                        "email": new_email.strip(),
+                        "password": new_password,
+                    })
+                    store_auth_session(response)
+                    if current_user_id():
+                        st.success("Account created. You are logged in.")
+                        st.rerun()
+                    else:
+                        st.success("Account created. Check your email to confirm, then log in.")
+                except Exception as e:
+                    st.error(f"Signup failed: {e}")
+
+    st.stop()
+
+
+require_login()
 
 # -----------------------------
 # Helpers
@@ -484,14 +690,34 @@ adaptive_interventions = get_adaptive_interventions(real_logs)
 
 st.sidebar.title("🧠 Temper Tracker")
 st.sidebar.caption("Track it. Catch it. Control it.")
+
+if USE_SUPABASE and current_user_id():
+    st.sidebar.caption(f"Signed in as {st.session_state.sb_user.get('email')}")
+    if st.sidebar.button("Log out", use_container_width=True):
+        try:
+            get_supabase_client().auth.sign_out()
+        except Exception:
+            pass
+        st.session_state.pop("sb_access_token", None)
+        st.session_state.pop("sb_refresh_token", None)
+        st.session_state.pop("sb_user", None)
+        st.rerun()
+
+# Mobile-friendly escape hatch: put Emergency above the sidebar navigation.
+# On phones, the user should not have to hunt through the menu when heated.
+if st.sidebar.button("🚨 Emergency Reset", use_container_width=True):
+    reset_emergency_session(start=True)
+    st.session_state.current_page = "Emergency"
+    st.rerun()
+
 PAGES = ["Home", "Emergency", "Daily Check-In", "Log", "Insights", "Weekly Review", "History", "Settings"]
-if "current_page" not in st.session_state:
+if "current_page" not in st.session_state or st.session_state.current_page not in PAGES:
     st.session_state.current_page = "Home"
+
 page = st.sidebar.radio(
     "Go to",
     PAGES,
     index=PAGES.index(st.session_state.current_page),
-    key="nav_page",
 )
 st.session_state.current_page = page
 
@@ -500,11 +726,43 @@ st.session_state.current_page = page
 # -----------------------------
 if page == "Home":
     page_title("Temper Tracker", "Your anger-control dashboard. Simple, honest, useful.")
+
+    # The emergency action must be first on mobile. No scrolling. No sidebar hunting.
+    st.markdown(
+        """
+        <div class='tt-danger'>
+            <div class='tt-big-text'>
+                <strong>Need help right now?</strong><br>
+                Start Emergency Mode before anything gets worse.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🚨 START EMERGENCY RESET", use_container_width=True):
+        reset_emergency_session(start=True)
+        st.session_state.current_page = "Emergency"
+        st.rerun()
+
+    a, b = st.columns(2)
+    with a:
+        if st.button("📝 Quick Log", use_container_width=True):
+            st.session_state.current_page = "Log"
+            st.rerun()
+    with b:
+        if st.button("✅ Daily Check-In", use_container_width=True):
+            st.session_state.current_page = "Daily Check-In"
+            st.rerun()
+
+    st.divider()
+
     today = date.today()
     today_logs = real_logs[real_logs["date"] == today] if not real_logs.empty else pd.DataFrame()
     today_checkin = checkins[checkins["checkin_date"] == today] if not checkins.empty else pd.DataFrame()
     risk_score, risk_label, risk_reasons = calculate_risk_score(today_checkin, real_logs)
 
+    st.subheader("Today")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Triggers Today", 0 if today_logs.empty else len(today_logs))
     c2.metric("Blow-Ups Today", 0 if today_logs.empty else int((today_logs["outcome"] == "Blew up").sum()))
@@ -518,26 +776,6 @@ if page == "Home":
         card("Today’s risk factors", ", ".join(risk_reasons) + ".", "danger" if risk_label == "High" else "normal")
     else:
         card("Today’s risk factors", "No major risk flags based on current data.", "success")
-
-    st.markdown("### Fast Actions")
-    a, b, c = st.columns(3)
-    with a:
-        if st.button("🚨 Start Emergency Mode", use_container_width=True):
-            reset_emergency_session(start=True)
-            st.session_state.current_page = "Emergency"
-            st.rerun()
-    with b:
-        if st.button("📝 Quick Log", use_container_width=True):
-            st.session_state.current_page = "Log"
-            st.rerun()
-    with c:
-        if st.button("✅ Daily Check-In", use_container_width=True):
-            st.session_state.current_page = "Daily Check-In"
-            st.rerun()
-
-    if st.session_state.trigger_mode:
-        st.info("Emergency Mode is active. Go to the Emergency page or continue below.")
-        page = "Emergency"
 
     st.divider()
     st.subheader("This Week Snapshot")
@@ -866,5 +1104,8 @@ elif page == "Settings":
             st.success("All data deleted.")
             st.rerun()
     st.divider()
-    st.subheader("Database Location")
-    st.code(str(DB_PATH))
+    st.subheader("Database")
+    if USE_SUPABASE:
+        st.code("Supabase connected. Data is stored online per signed-in user.")
+    else:
+        st.code(str(DB_PATH))
