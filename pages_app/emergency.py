@@ -5,23 +5,33 @@ from core.constants import REPAIR_OPTIONS, TRIGGER_OPTIONS
 from core.database import add_log
 from core.state import reset_emergency_session, reset_trigger_flow
 
-
 def render_emergency(adaptive_interventions):
     st.markdown("<div class='tt-emergency-title'>🚨 Emergency Mode</div>", unsafe_allow_html=True)
-    st.caption("For the heat of the moment. Do less. Slow the reaction first. Solve later.")
+    st.caption("Calm first. Think later.")
 
+    # -----------------------------
+    # Entry State
+    # -----------------------------
     if not st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
         st.markdown(
-            "<div class='tt-danger'><div class='tt-big-text'>"
-            "<strong>First move:</strong> stop talking if you can. Create space. Lower the damage."
-            "</div></div>",
+            """
+            <div class='tt-danger'>
+                <div class='tt-big-text'>
+                    <strong>First move:</strong><br>
+                    Stop talking. Create space. Lower the damage.
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
-        if st.button("Start Emergency Reset", use_container_width=True):
+        if st.button("🚨 Start Reset", use_container_width=True):
             reset_emergency_session(start=True)
             st.rerun()
 
+    # -----------------------------
+    # Active Emergency Flow
+    # -----------------------------
     if st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
         step = st.session_state.trigger_step
         intervention = get_emergency_intervention(step, adaptive_interventions)
@@ -31,54 +41,98 @@ def render_emergency(adaptive_interventions):
         st.session_state.trigger_mantra = mantra
 
         st.caption(f"Strategy {step + 1}")
-        st.markdown("### Right now, do this:")
-        st.markdown(f"## {intervention['name']}")
 
-        for item in intervention["instructions"]:
-            st.markdown(f"- {item}")
-
+        # -----------------------------
+        # Mantra FIRST (anchor brain)
+        # -----------------------------
         st.markdown(
             f"""
             <div class='tt-mantra'>
-                🧠 <strong>Repeat:</strong> {mantra}
+                🧠 <strong>Repeat:</strong><br>{mantra}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
+        # -----------------------------
+        # Universal Interrupt
+        # -----------------------------
+        st.markdown("## Right now")
+        st.markdown(
+            """
+            <div class='tt-card'>
+                <div class='tt-big-text'>
+                    Stop talking.<br>
+                    Take 3 slow breaths.<br>
+                    Step away if you can.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # -----------------------------
+        # NEXT MOVE (this is the key upgrade)
+        # -----------------------------
+        st.markdown("### Next move")
+
+        primary_action = intervention["instructions"][0]
+
+        st.markdown(
+            f"""
+            <div class='tt-card'>
+                <div class='tt-big-text'>
+                    {primary_action}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # -----------------------------
+        # Optional details (hidden)
+        # -----------------------------
+        with st.expander(f"More ways to handle this ({intervention['name']})"):
+            for item in intervention["instructions"]:
+                st.markdown(f"- {item}")
+
         st.divider()
-        c1, c2 = st.columns(2)
 
-        with c1:
-            if st.button("✅ I’m calmer", use_container_width=True):
-                st.session_state.trigger_outcome = "Stayed calm"
-                st.rerun()
+        # -----------------------------
+        # Action buttons (stacked for mobile)
+        # -----------------------------
+        if st.button("✅ I’m calmer", use_container_width=True):
+            st.session_state.trigger_outcome = "Stayed calm"
+            st.rerun()
 
-        with c2:
-            if st.button("➡️ Not yet — try another", use_container_width=True):
-                st.session_state.trigger_step += 1
-                st.rerun()
+        if st.button("➡️ Not yet — try another", use_container_width=True):
+            st.session_state.trigger_step += 1
+            st.rerun()
 
         if st.button("🔴 It escalated", use_container_width=True):
             st.session_state.trigger_outcome = "Blew up"
             st.rerun()
 
         st.divider()
+
         if st.button("Cancel Emergency Mode", use_container_width=True):
             reset_trigger_flow()
             st.rerun()
 
+    # -----------------------------
+    # Outcome → Quick Log
+    # -----------------------------
     if st.session_state.get("trigger_outcome"):
         st.markdown("## Quick Emergency Log")
         st.caption("Tiny log only. No essay needed.")
 
         with st.form("emergency_log_form"):
             trigger = st.selectbox("What triggered it?", TRIGGER_OPTIONS)
-            c1, c2 = st.columns(2)
-            intensity_before = c1.slider("Intensity before", 1, 10, 6)
+
+            intensity_before = st.slider("Intensity before", 1, 10, 6)
 
             default_after = 4 if st.session_state.trigger_outcome == "Stayed calm" else 8
-            intensity_after = c2.slider("Intensity now", 1, 10, default_after)
+            intensity_after = st.slider("Intensity now", 1, 10, default_after)
 
             repaired = st.selectbox("Repair/apology needed?", REPAIR_OPTIONS)
             notes = st.text_area("Optional note", placeholder="What helped? What made it harder?")
