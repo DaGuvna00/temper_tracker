@@ -9,9 +9,8 @@ from ui.components import card, page_title
 
 
 def render_home(real_logs, checkins):
-    page_title("Temper Tracker", "Your anger-control dashboard. Simple, honest, useful.")
+    page_title("Temper Tracker", "Calm first. Log second. Learn over time.")
 
-    # The emergency action must be first on mobile. No scrolling. No sidebar hunting.
     st.markdown(
         """
         <div class='tt-danger'>
@@ -47,30 +46,90 @@ def render_home(real_logs, checkins):
     risk_score, risk_label, risk_reasons = calculate_risk_score(today_checkin, real_logs)
 
     st.subheader("Today")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Triggers Today", 0 if today_logs.empty else len(today_logs))
-    c2.metric("Blow-Ups Today", 0 if today_logs.empty else int((today_logs["outcome"] == "Blew up").sum()))
-    c3.metric("Avg Intensity", "—" if today_logs.empty else round(today_logs["intensity"].mean(), 1))
-    c4.metric("Risk", risk_label, delta=f"{risk_score}/100")
 
-    if len(real_logs) < 20:
-        card("Early data warning", f"Only {len(real_logs)} real log(s) so far. Treat risk and pattern results as early clues, not hard truth.")
+    c1, c2 = st.columns(2)
+    c1.metric("Risk", risk_label, delta=f"{risk_score}/100")
+    c2.metric("Blow-Ups Today", 0 if today_logs.empty else int((today_logs["outcome"] == "Blew up").sum()))
+
+    if risk_label == "High":
+        focus = "Lower exposure today. Step away earlier than feels necessary."
+        focus_kind = "danger"
+    elif risk_label == "Medium":
+        focus = "Catch the early signs. Don’t let it climb to 7/10."
+        focus_kind = "normal"
+    else:
+        focus = "Maintain control. Notice what is working."
+        focus_kind = "success"
+
+    card("Today’s focus", focus, focus_kind)
 
     if risk_reasons:
-        card("Today’s risk factors", ", ".join(risk_reasons) + ".", "danger" if risk_label == "High" else "normal")
+        card(
+            "Main risk factor",
+            ", ".join(risk_reasons) + ".",
+            "danger" if risk_label == "High" else "normal",
+        )
     else:
-        card("Today’s risk factors", "No major risk flags based on current data.", "success")
+        card("Main risk factor", "No major risk flags based on current data.", "success")
+
+    if len(real_logs) < 20:
+        card(
+            "Early data warning",
+            f"Only {len(real_logs)} real log(s) so far. Treat patterns as clues, not truth.",
+        )
 
     st.divider()
-    st.subheader("This Week Snapshot")
+
+    st.subheader("Last Moment")
+
     if real_logs.empty:
-        st.info("No real logs yet.")
+        card("No logs yet", "Use Quick Log after a moment happens. Small data beats memory.")
     else:
-        last_7 = real_logs[real_logs["timestamp"] >= pd.Timestamp.now() - pd.Timedelta(days=7)]
-        if not last_7.empty:
-            a, b, c = st.columns(3)
-            a.metric("Most Common Trigger", last_7["trigger"].mode().iloc[0])
-            b.metric("Blow-Ups This Week", int((last_7["outcome"] == "Blew up").sum()))
-            c.metric("Avg Intensity", round(last_7["intensity"].mean(), 1))
-            for insight in build_pattern_insights(last_7):
-                card("Early clue", insight)
+        last = real_logs.sort_values("timestamp", ascending=False).iloc[0]
+
+        trigger = last["trigger"]
+        outcome = last["outcome"]
+        intensity = last["intensity"]
+
+        if outcome == "Blew up":
+            card(
+                "Repair may matter",
+                f"Last logged moment: {trigger}, intensity {intensity}/10. Don’t spiral — repair beats shame.",
+                "danger",
+            )
+
+            if st.button("🛠️ Start Repair Mode", use_container_width=True):
+                st.session_state.current_page = "Repair"
+                st.session_state.repair_log_id = int(last["id"])
+                st.rerun()
+
+        elif outcome == "Stayed calm":
+            card(
+                "Recent win",
+                f"You stayed calm during {trigger} at {intensity}/10. That counts.",
+                "success",
+            )
+        else:
+            card(
+                "Recent struggle",
+                f"You struggled with {trigger} at {intensity}/10. Good data. Watch that pattern.",
+                "normal",
+            )
+
+    st.divider()
+
+    with st.expander("Weekly snapshot"):
+        if real_logs.empty:
+            st.info("No real logs yet.")
+        else:
+            last_7 = real_logs[real_logs["timestamp"] >= pd.Timestamp.now() - pd.Timedelta(days=7)]
+            if last_7.empty:
+                st.info("No logs in the last 7 days.")
+            else:
+                a, b, c = st.columns(3)
+                a.metric("Most Common Trigger", last_7["trigger"].mode().iloc[0])
+                b.metric("Blow-Ups", int((last_7["outcome"] == "Blew up").sum()))
+                c.metric("Avg Intensity", round(last_7["intensity"].mean(), 1))
+
+                for insight in build_pattern_insights(last_7):
+                    card("Early clue", insight)

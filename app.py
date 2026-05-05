@@ -17,6 +17,8 @@ from pages_app.log import render_log
 from pages_app.settings import render_settings
 from pages_app.weekly_review import render_weekly_review
 from ui.styles import apply_styles
+from pages_app.repair import render_repair
+
 
 apply_styles()
 init_session_state()
@@ -70,3 +72,5 @@ elif page == "History":
     render_history(logs, real_logs)
 elif page == "Settings":
     render_settings()
+elif page == "Repair":
+    render_repair(real_logs)

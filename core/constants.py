@@ -10,7 +10,7 @@ TRIGGER_OPTIONS = ["Repetition", "Noise / chaos", "Disrespect", "Tired", "Overwh
 OUTCOME_OPTIONS = ["Stayed calm", "Struggled", "Blew up"]
 REPAIR_OPTIONS = ["Not needed", "Yes", "No", "Planned"]
 
-PAGES = ["Home", "Emergency", "Daily Check-In", "Log", "Insights", "Weekly Review", "History", "Settings"]
+PAGES = ["Home", "Emergency", "Daily Check-In", "Log", "Insights", "Weekly Review", "History", "Repair", "Settings"]
 
 MANTRAS = [
     "Nothing needs to be solved right now.",
