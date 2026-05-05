@@ -72,6 +72,38 @@ def render_home(real_logs, checkins):
     else:
         card("Main risk factor", "No major risk flags based on current data.", "success")
 
+    # -----------------------------
+    # Repair Queue
+    # -----------------------------
+    if not real_logs.empty:
+        blowups = real_logs[real_logs["outcome"] == "Blew up"].copy()
+
+        if not blowups.empty:
+            needs_repair = blowups[
+                blowups["repaired"]
+                .fillna("Not needed")
+                .isin(["Not needed", "No", "Planned"])
+            ]
+
+            repair_count = len(needs_repair)
+
+            if repair_count > 0:
+                card(
+                    "Repair queue",
+                    f"{repair_count} moment(s) may still need repair. Repair builds trust faster than perfection.",
+                    "danger",
+                )
+
+                if st.button("🛠️ Go to Repair Mode", use_container_width=True):
+                    st.session_state.current_page = "Repair"
+                    st.rerun()
+            else:
+                card(
+                    "Repair queue",
+                    "All logged blow-ups are marked repaired. That’s progress.",
+                    "success",
+                )
+
     if len(real_logs) < 20:
         card(
             "Early data warning",
