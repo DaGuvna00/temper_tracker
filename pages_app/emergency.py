@@ -9,9 +9,6 @@ def render_emergency(adaptive_interventions):
     st.markdown("<div class='tt-emergency-title'>🚨 Emergency Mode</div>", unsafe_allow_html=True)
     st.caption("Calm first. Think later.")
 
-    # -----------------------------
-    # Entry State
-    # -----------------------------
     if not st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
         st.markdown(
             """
@@ -29,9 +26,6 @@ def render_emergency(adaptive_interventions):
             reset_emergency_session(start=True)
             st.rerun()
 
-    # -----------------------------
-    # Active Emergency Flow
-    # -----------------------------
     if st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
         step = st.session_state.trigger_step
         intervention = get_emergency_intervention(step, adaptive_interventions)
@@ -42,9 +36,6 @@ def render_emergency(adaptive_interventions):
 
         st.caption(f"Strategy {step + 1}")
 
-        # -----------------------------
-        # Mantra FIRST (anchor brain)
-        # -----------------------------
         st.markdown(
             f"""
             <div class='tt-mantra'>
@@ -54,9 +45,6 @@ def render_emergency(adaptive_interventions):
             unsafe_allow_html=True,
         )
 
-        # -----------------------------
-        # Universal Interrupt
-        # -----------------------------
         st.markdown("## Right now")
         st.markdown(
             """
@@ -71,11 +59,7 @@ def render_emergency(adaptive_interventions):
             unsafe_allow_html=True,
         )
 
-        # -----------------------------
-        # NEXT MOVE (this is the key upgrade)
-        # -----------------------------
         st.markdown("### Next move")
-
         primary_action = intervention["instructions"][0]
 
         st.markdown(
@@ -89,18 +73,12 @@ def render_emergency(adaptive_interventions):
             unsafe_allow_html=True,
         )
 
-        # -----------------------------
-        # Optional details (hidden)
-        # -----------------------------
         with st.expander(f"More ways to handle this ({intervention['name']})"):
             for item in intervention["instructions"]:
                 st.markdown(f"- {item}")
 
         st.divider()
 
-        # -----------------------------
-        # Action buttons (stacked for mobile)
-        # -----------------------------
         if st.button("✅ I’m calmer", use_container_width=True):
             st.session_state.trigger_outcome = "Stayed calm"
             st.rerun()
@@ -119,38 +97,67 @@ def render_emergency(adaptive_interventions):
             reset_trigger_flow()
             st.rerun()
 
-    # -----------------------------
-    # Outcome → Quick Log
-    # -----------------------------
     if st.session_state.get("trigger_outcome"):
         st.markdown("## Quick Emergency Log")
         st.caption("Tiny log only. No essay needed.")
+
+        outcome = st.session_state.trigger_outcome
+        strategy_used = st.session_state.get("trigger_intervention")
+        mantra_used = st.session_state.get("trigger_mantra")
+
+        if outcome == "Blew up":
+            st.markdown(
+                """
+                <div class='tt-danger'>
+                    <div class='tt-big-text'>
+                        Log it, then repair if needed. Data, not shame.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         with st.form("emergency_log_form"):
             trigger = st.selectbox("What triggered it?", TRIGGER_OPTIONS)
 
             intensity_before = st.slider("Intensity before", 1, 10, 6)
 
-            default_after = 4 if st.session_state.trigger_outcome == "Stayed calm" else 8
+            default_after = 4 if outcome == "Stayed calm" else 8
             intensity_after = st.slider("Intensity now", 1, 10, default_after)
 
             repaired = st.selectbox("Repair/apology needed?", REPAIR_OPTIONS)
-            notes = st.text_area("Optional note", placeholder="What helped? What made it harder?")
+
+            helped = st.radio(
+                "Did Emergency Mode help in the moment?",
+                ["Yes", "Kind of", "No"],
+                horizontal=True,
+            )
+
+            notes = st.text_area(
+                "Optional note",
+                placeholder="What helped? What made it harder?",
+            )
 
             submitted = st.form_submit_button("Save Emergency Log", use_container_width=True)
 
         if submitted:
-            strategy_used = st.session_state.get("trigger_intervention")
-            mantra_used = st.session_state.get("trigger_mantra")
-            full_notes = notes
+            note_parts = []
 
             if mantra_used:
-                full_notes = f"Mantra: {mantra_used}" + (f"\n\n{notes}" if notes else "")
+                note_parts.append(f"Mantra: {mantra_used}")
+
+            if helped:
+                note_parts.append(f"Emergency feedback: {helped}")
+
+            if notes:
+                note_parts.append(notes)
+
+            full_notes = "\n\n".join(note_parts)
 
             add_log(
                 trigger,
                 intensity_before,
-                st.session_state.trigger_outcome,
+                outcome,
                 full_notes,
                 "Emergency mode",
                 strategy_used,
@@ -158,10 +165,43 @@ def render_emergency(adaptive_interventions):
                 repaired,
             )
 
-            if st.session_state.trigger_outcome == "Stayed calm":
-                st.success("Logged as a win.")
-            else:
-                st.error("Logged. Data, not shame.")
+            if outcome == "Blew up" and repaired in ["Yes", "Planned", "No"]:
+                reset_trigger_flow()
+                st.session_state.current_page = "Repair"
+                st.rerun()
+
+            reset_trigger_flow()
+            st.success("Logged.")
+            st.rerun()
+
+        st.divider()
+
+        st.markdown("### Need it faster?")
+
+        if st.button("⚡ Quick save and move on", use_container_width=True):
+            note_parts = []
+
+            if mantra_used:
+                note_parts.append(f"Mantra: {mantra_used}")
+
+            note_parts.append("Emergency feedback: Not answered")
+            note_parts.append("Quick-saved from Emergency Mode.")
+
+            add_log(
+                "Other",
+                6,
+                outcome,
+                "\n\n".join(note_parts),
+                "Emergency mode",
+                strategy_used,
+                4 if outcome == "Stayed calm" else 8,
+                "Planned" if outcome == "Blew up" else "Not needed",
+            )
+
+            if outcome == "Blew up":
+                reset_trigger_flow()
+                st.session_state.current_page = "Repair"
+                st.rerun()
 
             reset_trigger_flow()
             st.rerun()
