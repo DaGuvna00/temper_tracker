@@ -7,7 +7,7 @@ from core.analytics import clean_logs, get_adaptive_interventions
 from core.auth import USE_SUPABASE, current_user_id, logout, require_login
 from core.constants import PAGES
 from core.database import init_db, load_checkins, load_logs
-from core.state import init_session_state, reset_emergency_session
+from core.state import init_session_state, reset_emergency_session, reset_trigger_flow
 from pages_app.checkin import render_checkin
 from pages_app.emergency import render_emergency
 from pages_app.history import render_history
@@ -18,6 +18,7 @@ from pages_app.settings import render_settings
 from pages_app.weekly_review import render_weekly_review
 from ui.styles import apply_styles
 from pages_app.repair import render_repair
+from core.state import reset_trigger_flow
 
 
 apply_styles()
@@ -30,7 +31,7 @@ real_logs = clean_logs(logs)
 checkins = load_checkins()
 adaptive_interventions = get_adaptive_interventions(real_logs)
 
-st.sidebar.title("🧠 Temper Tracker")
+st.sidebar.title(" Temper Tracker")
 st.sidebar.caption("Track it. Catch it. Control it.")
 
 if USE_SUPABASE and current_user_id():
@@ -42,7 +43,8 @@ if USE_SUPABASE and current_user_id():
 # Mobile-friendly escape hatch: put Emergency above the sidebar navigation.
 # On phones, the user should not have to hunt through the menu when heated.
 if st.sidebar.button("🚨 Emergency Reset", use_container_width=True):
-    reset_emergency_session(start=True)
+    reset_trigger_flow()
+    st.session_state.pop("emergency_trigger", None)
     st.session_state.current_page = "Emergency"
     st.rerun()
 
@@ -59,7 +61,7 @@ st.session_state.current_page = page
 if page == "Home":
     render_home(real_logs, checkins)
 elif page == "Emergency":
-    render_emergency(adaptive_interventions)
+    render_emergency(adaptive_interventions, real_logs)
 elif page == "Daily Check-In":
     render_checkin()
 elif page == "Log":

@@ -26,13 +26,88 @@ MANTRAS = [
 ]
 
 DEFAULT_INTERVENTIONS = [
-    {"type": "distance", "name": "Step Away Reset", "instructions": ["Stop talking if you can.", "Physically move away from the trigger if everyone is safe.", "Put both feet on the floor.", "Take 3 slow breaths before doing anything else."]},
-    {"type": "breathing", "name": "Box Breathing", "instructions": ["Breathe in for 4 seconds.", "Hold for 4 seconds.", "Breathe out for 4 seconds.", "Hold for 4 seconds.", "Repeat 3 times."]},
-    {"type": "breathing", "name": "Physiological Sigh", "instructions": ["Take a deep inhale through your nose.", "Before exhaling, take one small extra inhale.", "Slowly exhale all the way out.", "Repeat 3 to 5 times."]},
-    {"type": "body", "name": "Unclench Reset", "instructions": ["Unclench your jaw.", "Drop your shoulders.", "Open your hands.", "Relax your tongue from the roof of your mouth.", "Take one slow breath."]},
-    {"type": "cold", "name": "Cold Water Reset", "instructions": ["Go to the sink if possible.", "Splash cold water on your face or run cold water over your wrists.", "Focus only on the cold sensation for 20 to 30 seconds.", "Do not restart the conversation yet."]},
-    {"type": "attention", "name": "5-4-3 Grounding", "instructions": ["Name 5 things you can see.", "Name 4 things you can feel.", "Name 3 things you can hear.", "Name 2 things you can smell.", "Name 1 thing you can do next that lowers the damage."]},
-    {"type": "attention", "name": "Counting Interrupt", "instructions": ["Count backwards from 50 by 3s.", "If you mess up, start again.", "Keep your mouth closed while counting.", "Let the wave pass before responding."]},
-    {"type": "repair", "name": "Repair Preview", "instructions": ["Imagine having to apologize for what you say next.", "Ask: will this make repair harder?", "Choose the smallest next action that avoids damage."]},
-    {"type": "voice", "name": "Lower Your Voice Drill", "instructions": ["Before saying anything, lower your voice on purpose.", "Speak slower than normal.", "Use one sentence only: ‘I need a minute.’", "Do not lecture while heated."]},
+    {
+        "type": "distance",
+        "name": "Step Away Reset",
+        "instructions": [
+            "Leave the room for 2 minutes if everyone is safe.",
+            "Do not continue the argument from another room.",
+            "Return only when your voice can stay calm.",
+        ],
+    },
+    {
+        "type": "breathing",
+        "name": "Box Breathing",
+        "instructions": [
+            "Do 3 rounds of box breathing: in 4, hold 4, out 4, hold 4.",
+            "Keep your mouth closed unless you need to say: ‘I need a minute.’",
+            "Restart the conversation only after your body slows down.",
+        ],
+    },
+    {
+        "type": "breathing",
+        "name": "Physiological Sigh",
+        "instructions": [
+            "Take one deep inhale, add a short second inhale, then long slow exhale.",
+            "Repeat 3 to 5 times.",
+            "Let your shoulders drop on each exhale.",
+        ],
+    },
+    {
+        "type": "body",
+        "name": "Unclench Reset",
+        "instructions": [
+            "Open your hands and unclench your jaw right now.",
+            "Drop your shoulders.",
+            "Relax your tongue from the roof of your mouth.",
+            "Take one slow breath before speaking.",
+        ],
+    },
+    {
+        "type": "cold",
+        "name": "Cold Water Reset",
+        "instructions": [
+            "Go splash cold water on your face or wrists.",
+            "Focus only on the cold feeling for 20 seconds.",
+            "Do not restart the conversation while your voice still feels sharp.",
+        ],
+    },
+    {
+        "type": "attention",
+        "name": "5-4-3 Grounding",
+        "instructions": [
+            "Name 5 things you can see before you say anything else.",
+            "Name 4 things you can feel.",
+            "Name 3 things you can hear.",
+            "Choose the next action that lowers the damage.",
+        ],
+    },
+    {
+        "type": "attention",
+        "name": "Counting Interrupt",
+        "instructions": [
+            "Count backward from 50 by 3s before responding.",
+            "If you mess up, start again.",
+            "Keep your mouth closed while counting.",
+        ],
+    },
+    {
+        "type": "voice",
+        "name": "Lower Your Voice Drill",
+        "instructions": [
+            "Say only this: ‘I need a minute.’",
+            "Lower your voice before saying anything else.",
+            "Speak slower than normal.",
+            "Do not lecture while heated.",
+        ],
+    },
+    {
+        "type": "repair",
+        "name": "Future Repair Check",
+        "instructions": [
+            "Imagine apologizing for the next sentence before you say it.",
+            "Ask: will this make repair harder?",
+            "Choose the smallest action that prevents damage.",
+        ],
+    },
 ]

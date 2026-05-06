@@ -22,16 +22,121 @@ def get_adaptive_interventions(df):
     return sorted(DEFAULT_INTERVENTIONS, key=lambda x: score_map.get(x["name"], (-1, 0)), reverse=True)
 
 
-def get_emergency_intervention(step, interventions):
-    """Rotate through intervention types so Emergency Mode feels intentional, not random."""
-    rotation = ["distance", "breathing", "body", "cold", "attention", "repair", "voice"]
-    target_type = rotation[step % len(rotation)]
-    matching = [item for item in interventions if item.get("type") == target_type]
-    if matching:
-        index = step // len(rotation)
-        return matching[index % len(matching)]
-    return interventions[step % len(interventions)]
+TRIGGER_STRATEGY_MAP = {
+    "Noise / chaos": ["distance", "attention", "body"],
+    "Disrespect": ["repair", "voice", "distance"],
+    "Overwhelmed": ["breathing", "body", "distance"],
+    "Tired": ["distance", "breathing", "body"],
+    "Interrupted": ["voice", "breathing"],
+    "Repetition": ["breathing", "attention"],
+    "Other": ["distance", "breathing"],
+}
 
+
+def get_emergency_intervention(step, interventions, trigger=None, logs=None):
+    """
+    Emergency Mode selector.
+
+    Priority:
+    1. Match strategies to the current trigger.
+    2. If enough personal history exists, rank strategies by success.
+    3. Fall back to trigger-aware rotation.
+    """
+
+    if not interventions:
+        return {
+            "type": "breathing",
+            "name": "Pause",
+            "instructions": ["Take one slow breath."],
+        }
+
+    preferred_types = TRIGGER_STRATEGY_MAP.get(trigger, []) if trigger else []
+
+    if preferred_types:
+        trigger_matched = [
+            item for item in interventions
+            if item.get("type") in preferred_types
+        ]
+    else:
+        trigger_matched = interventions
+
+    if not trigger_matched:
+        trigger_matched = interventions
+
+    # -----------------------------
+    # Personal learning layer
+    # -----------------------------
+    if logs is not None and not logs.empty and trigger:
+        history = logs[
+            (logs["trigger"] == trigger)
+            & (logs["strategy"].notna())
+            & (logs["strategy"] != "")
+        ].copy()
+
+        if not history.empty:
+            history["success"] = history["outcome"].eq("Stayed calm")
+
+            if "intensity_after" in history.columns:
+                history["drop"] = (
+                    history["intensity"]
+                    - history["intensity_after"].fillna(history["intensity"])
+                )
+            else:
+                history["drop"] = 0
+
+            stats = (
+                history.groupby("strategy")
+                .agg(
+                    uses=("id", "count"),
+                    success_rate=("success", "mean"),
+                    avg_drop=("drop", "mean"),
+                )
+                .reset_index()
+            )
+
+            # Don't trust one lucky success.
+            stats = stats[stats["uses"] >= 3]
+
+            if not stats.empty:
+                stat_map = {
+                    row["strategy"]: {
+                        "uses": row["uses"],
+                        "success_rate": row["success_rate"],
+                        "avg_drop": row["avg_drop"],
+                    }
+                    for _, row in stats.iterrows()
+                }
+
+                ranked = []
+
+                for item in trigger_matched:
+                    name = item["name"]
+
+                    if name in stat_map:
+                        score = (
+                            stat_map[name]["success_rate"] * 100
+                            + stat_map[name]["avg_drop"] * 5
+                            + min(stat_map[name]["uses"], 10)
+                        )
+                    else:
+                        score = -1
+
+                    ranked.append((score, item))
+
+                ranked = sorted(ranked, key=lambda x: x[0], reverse=True)
+
+                learned = [item for score, item in ranked if score >= 0]
+                unlearned = [item for score, item in ranked if score < 0]
+
+                ordered = learned + unlearned
+
+                return ordered[step % len(ordered)]
+
+    # -----------------------------
+    # Trigger-aware fallback
+    # -----------------------------
+    return trigger_matched[step % len(trigger_matched)]
+  
 
 def get_emergency_mantra(step):
     return MANTRAS[step % len(MANTRAS)]
@@ -138,3 +243,154 @@ def strategy_by_trigger(df: pd.DataFrame) -> pd.DataFrame:
     result["success_rate"] = (result["success_rate"] * 100).round(0).astype(int)
     result["avg_drop"] = result["avg_drop"].round(1)
     return result
+
+def detect_escalation_state(today_logs: pd.DataFrame, today_checkin: pd.DataFrame):
+    """
+    Detect whether today is stable, rising, or high-risk.
+
+    This is intentionally simple and transparent.
+    It should coach the user, not scare them.
+    """
+
+    if today_logs.empty:
+        return {
+            "state": "Stable",
+            "kind": "success",
+            "message": "No escalation pattern detected yet today.",
+            "reasons": [],
+        }
+
+    reasons = []
+    score = 0
+
+    blowups_today = int((today_logs["outcome"] == "Blew up").sum())
+    high_intensity_today = int((today_logs["intensity"] >= 7).sum())
+    emergency_sessions = int((today_logs["source"] == "Emergency mode").sum())
+    avg_intensity = float(today_logs["intensity"].mean())
+
+    if blowups_today >= 2:
+        score += 4
+        reasons.append(f"{blowups_today} blow-ups today")
+    elif blowups_today == 1:
+        score += 2
+        reasons.append("1 blow-up today")
+
+    if high_intensity_today >= 3:
+        score += 3
+        reasons.append(f"{high_intensity_today} high-intensity moments today")
+    elif high_intensity_today >= 1:
+        score += 1
+        reasons.append(f"{high_intensity_today} high-intensity moment(s) today")
+
+    if emergency_sessions >= 3:
+        score += 3
+        reasons.append(f"{emergency_sessions} emergency sessions today")
+    elif emergency_sessions >= 1:
+        score += 1
+        reasons.append(f"{emergency_sessions} emergency session(s) today")
+
+    if avg_intensity >= 7:
+        score += 2
+        reasons.append(f"average intensity is {avg_intensity:.1f}/10")
+
+    if not today_checkin.empty:
+        row = today_checkin.iloc[0]
+
+        stress = int(row.get("stress_level") or 5)
+        overwhelm = int(row.get("overwhelm_level") or 5)
+        sleep = int(row.get("sleep_quality") or 5)
+
+        if stress >= 8:
+            score += 1
+            reasons.append("stress check-in is very high")
+
+        if overwhelm >= 8:
+            score += 1
+            reasons.append("overwhelm check-in is very high")
+
+        if sleep <= 3:
+            score += 1
+            reasons.append("sleep check-in is very low")
+
+    if score >= 6:
+        return {
+            "state": "High Risk",
+            "kind": "danger",
+            "message": "Today is trending high-risk. Lower demands, reduce stimulation, and step away earlier than usual.",
+            "reasons": reasons,
+        }
+
+    if score >= 3:
+        return {
+            "state": "Rising",
+            "kind": "normal",
+            "message": "Escalation may be building today. Catch the next moment early.",
+            "reasons": reasons,
+        }
+
+    return {
+        "state": "Stable",
+        "kind": "success",
+        "message": "No strong escalation pattern detected today.",
+        "reasons": reasons,
+    }
+
+def get_best_strategy_suggestion(real_logs):
+    """
+    Return the user's strongest-performing strategy overall.
+
+    Conservative:
+    - Requires at least 3 uses
+    - Rewards success rate first
+    - Uses intensity drop as secondary factor
+    """
+
+    if real_logs.empty or "strategy" not in real_logs.columns:
+        return None
+
+    temp = real_logs[
+        real_logs["strategy"].notna()
+    ].copy()
+
+    if temp.empty:
+        return None
+
+    temp["success"] = temp["outcome"].eq("Stayed calm")
+
+    if "intensity_after" in temp.columns:
+        temp["drop"] = (
+            temp["intensity"]
+            - temp["intensity_after"].fillna(temp["intensity"])
+        )
+    else:
+        temp["drop"] = 0
+
+    stats = (
+        temp.groupby("strategy")
+        .agg(
+            uses=("id", "count"),
+            success_rate=("success", "mean"),
+            avg_drop=("drop", "mean"),
+        )
+        .reset_index()
+    )
+
+    stats = stats[stats["uses"] >= 3]
+
+    if stats.empty:
+        return None
+
+    stats["score"] = (
+        stats["success_rate"] * 100
+        + stats["avg_drop"] * 5
+        + stats["uses"]
+    )
+
+    best = stats.sort_values("score", ascending=False).iloc[0]
+
+    return {
+        "strategy": best["strategy"],
+        "uses": int(best["uses"]),
+        "success_rate": int(round(best["success_rate"] * 100)),
+        "avg_drop": round(best["avg_drop"], 1),
+    }

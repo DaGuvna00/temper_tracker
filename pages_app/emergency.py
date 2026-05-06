@@ -5,7 +5,24 @@ from core.constants import REPAIR_OPTIONS, TRIGGER_OPTIONS
 from core.database import add_log
 from core.state import reset_emergency_session, reset_trigger_flow
 
-def render_emergency(adaptive_interventions):
+
+EARLY_WARNING_SIGNS = [
+    "Jaw clenched",
+    "Shoulders tight",
+    "Voice got sharper",
+    "Talking faster",
+    "Repeating myself",
+    "Wanted to argue/win",
+    "Couldn’t let it go",
+    "Felt rushed",
+    "Heat in chest/face",
+    "Needed space",
+    "Felt overstimulated",
+    "Wanted control",
+]
+
+
+def render_emergency(adaptive_interventions, real_logs):
     st.markdown("<div class='tt-emergency-title'>🚨 Emergency Mode</div>", unsafe_allow_html=True)
     st.caption("Calm first. Think later.")
 
@@ -22,13 +39,28 @@ def render_emergency(adaptive_interventions):
             unsafe_allow_html=True,
         )
 
+        selected_trigger = st.selectbox(
+            "What’s hitting you right now?",
+            TRIGGER_OPTIONS,
+        )
+
+        st.session_state.emergency_trigger = selected_trigger
+
         if st.button("🚨 Start Reset", use_container_width=True):
             reset_emergency_session(start=True)
             st.rerun()
 
     if st.session_state.trigger_mode and not st.session_state.get("trigger_outcome"):
         step = st.session_state.trigger_step
-        intervention = get_emergency_intervention(step, adaptive_interventions)
+        trigger = st.session_state.get("emergency_trigger")
+
+        intervention = get_emergency_intervention(
+            step,
+            adaptive_interventions,
+            trigger,
+            real_logs,
+        )
+
         mantra = get_emergency_mantra(step)
 
         st.session_state.trigger_intervention = intervention["name"]
@@ -104,6 +136,7 @@ def render_emergency(adaptive_interventions):
         outcome = st.session_state.trigger_outcome
         strategy_used = st.session_state.get("trigger_intervention")
         mantra_used = st.session_state.get("trigger_mantra")
+        emergency_trigger = st.session_state.get("emergency_trigger", "Other")
 
         if outcome == "Blew up":
             st.markdown(
@@ -118,19 +151,38 @@ def render_emergency(adaptive_interventions):
             )
 
         with st.form("emergency_log_form"):
-            trigger = st.selectbox("What triggered it?", TRIGGER_OPTIONS)
+            trigger = st.selectbox(
+                "What triggered it?",
+                TRIGGER_OPTIONS,
+                index=TRIGGER_OPTIONS.index(emergency_trigger)
+                if emergency_trigger in TRIGGER_OPTIONS
+                else 0,
+            )
 
             intensity_before = st.slider("Intensity before", 1, 10, 6)
 
             default_after = 4 if outcome == "Stayed calm" else 8
             intensity_after = st.slider("Intensity now", 1, 10, default_after)
 
-            repaired = st.selectbox("Repair/apology needed?", REPAIR_OPTIONS)
+            default_repair = "Planned" if outcome == "Blew up" else "Not needed"
+            default_repair_index = REPAIR_OPTIONS.index(default_repair) if default_repair in REPAIR_OPTIONS else 0
+
+            repaired = st.selectbox(
+                "Repair/apology needed?",
+                REPAIR_OPTIONS,
+                index=default_repair_index,
+            )
 
             helped = st.radio(
                 "Did Emergency Mode help in the moment?",
                 ["Yes", "Kind of", "No"],
                 horizontal=True,
+            )
+
+            warning_signs = st.multiselect(
+                "Looking back, what early signs were there?",
+                EARLY_WARNING_SIGNS,
+                help="Pick any signs you noticed before or during the escalation.",
             )
 
             notes = st.text_area(
@@ -148,6 +200,9 @@ def render_emergency(adaptive_interventions):
 
             if helped:
                 note_parts.append(f"Emergency feedback: {helped}")
+
+            if warning_signs:
+                note_parts.append(f"Early warning signs: {', '.join(warning_signs)}")
 
             if notes:
                 note_parts.append(notes)
@@ -185,10 +240,11 @@ def render_emergency(adaptive_interventions):
                 note_parts.append(f"Mantra: {mantra_used}")
 
             note_parts.append("Emergency feedback: Not answered")
+            note_parts.append("Early warning signs: Not answered")
             note_parts.append("Quick-saved from Emergency Mode.")
 
             add_log(
-                "Other",
+                emergency_trigger,
                 6,
                 outcome,
                 "\n\n".join(note_parts),
