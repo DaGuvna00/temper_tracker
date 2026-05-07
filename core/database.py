@@ -211,9 +211,177 @@ def delete_all_logs():
     if USE_SUPABASE:
         get_supabase_client().table("logs").delete().eq("user_id", current_user_id()).execute()
         get_supabase_client().table("daily_checkins").delete().eq("user_id", current_user_id()).execute()
+        get_supabase_client().table("weekly_experiments").delete().eq("user_id", current_user_id()).execute()
         return
 
     with get_connection() as conn:
         conn.execute("DELETE FROM logs")
         conn.execute("DELETE FROM daily_checkins")
+        conn.commit()
+
+# -----------------------------
+# Weekly Experiments
+# -----------------------------
+def init_weekly_experiments_table_sqlite():
+    """Create weekly experiments table for local SQLite testing."""
+    if USE_SUPABASE:
+        return
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_experiments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                experiment_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Planned',
+                reflection TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                UNIQUE(week_start, week_end)
+            )
+            """
+        )
+        conn.commit()
+
+
+def load_weekly_experiment(week_start, week_end):
+    week_start = str(week_start)
+    week_end = str(week_end)
+
+    if USE_SUPABASE:
+        response = (
+            get_supabase_client()
+            .table("weekly_experiments")
+            .select("*")
+            .eq("user_id", current_user_id())
+            .eq("week_start", week_start)
+            .eq("week_end", week_end)
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+        return data[0] if data else None
+
+    init_weekly_experiments_table_sqlite()
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM weekly_experiments
+            WHERE week_start=? AND week_end=?
+            LIMIT 1
+            """,
+            (week_start, week_end),
+        ).fetchone()
+
+        if not row:
+            return None
+
+        cols = [col[1] for col in conn.execute("PRAGMA table_info(weekly_experiments)").fetchall()]
+        return dict(zip(cols, row))
+
+
+def save_weekly_experiment(week_start, week_end, experiment_text, status="Planned", reflection=""):
+    now = datetime.now().isoformat(timespec="seconds")
+
+    payload = {
+        "week_start": str(week_start),
+        "week_end": str(week_end),
+        "experiment_text": experiment_text,
+        "status": status,
+        "reflection": reflection,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    if USE_SUPABASE:
+        payload["user_id"] = current_user_id()
+
+        get_supabase_client().table("weekly_experiments").upsert(
+            payload,
+            on_conflict="user_id,week_start,week_end",
+        ).execute()
+        return
+
+    init_weekly_experiments_table_sqlite()
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO weekly_experiments
+                (week_start, week_end, experiment_text, status, reflection, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(week_start, week_end) DO UPDATE SET
+                experiment_text=excluded.experiment_text,
+                status=excluded.status,
+                reflection=excluded.reflection,
+                updated_at=excluded.updated_at
+            """,
+            (
+                str(week_start),
+                str(week_end),
+                experiment_text,
+                status,
+                reflection,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def update_weekly_experiment(experiment_id, status=None, reflection=None):
+    now = datetime.now().isoformat(timespec="seconds")
+
+    if USE_SUPABASE:
+        payload = {"updated_at": now}
+
+        if status is not None:
+            payload["status"] = status
+
+        if reflection is not None:
+            payload["reflection"] = reflection
+
+        get_supabase_client().table("weekly_experiments").update(payload).eq(
+            "id",
+            int(experiment_id),
+        ).eq(
+            "user_id",
+            current_user_id(),
+        ).execute()
+        return
+
+    init_weekly_experiments_table_sqlite()
+
+    existing = None
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM weekly_experiments WHERE id=? LIMIT 1",
+            (int(experiment_id),),
+        ).fetchone()
+
+        if not row:
+            return
+
+        cols = [col[1] for col in conn.execute("PRAGMA table_info(weekly_experiments)").fetchall()]
+        existing = dict(zip(cols, row))
+
+        conn.execute(
+            """
+            UPDATE weekly_experiments
+            SET status=?, reflection=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                status if status is not None else existing.get("status"),
+                reflection if reflection is not None else existing.get("reflection"),
+                now,
+                int(experiment_id),
+            ),
+        )
         conn.commit()
