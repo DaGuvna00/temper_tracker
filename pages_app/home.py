@@ -6,9 +6,10 @@ import streamlit as st
 from core.analytics import (
     build_pattern_insights,
     calculate_risk_score,
-    detect_escalation_state,
-    get_best_strategy_suggestion,
 )
+from core.escalation import detect_escalation_state
+from core.interventions import get_best_strategy_suggestion
+from core.repair_engine import get_repair_count
 from core.state import reset_trigger_flow
 from ui.components import card, page_title
 
@@ -152,13 +153,7 @@ def render_home(real_logs, checkins):
         blowups = real_logs[real_logs["outcome"] == "Blew up"].copy()
 
         if not blowups.empty:
-            needs_repair = blowups[
-                blowups["repaired"]
-                .fillna("Not needed")
-                .isin(["Not needed", "No", "Planned"])
-            ]
-
-            repair_count = len(needs_repair)
+            repair_count = get_repair_count(real_logs)
 
             if repair_count > 0:
                 card(

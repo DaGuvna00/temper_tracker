@@ -1,7 +1,9 @@
 import pandas as pd
 import streamlit as st
 
-from core.analytics import build_pattern_insights, strategy_by_trigger, top_danger_patterns
+from core.analytics import build_pattern_insights, top_danger_patterns
+from core.escalation import extract_warning_signs
+from core.interventions import strategy_by_trigger
 from ui.components import card, page_title
 
 
@@ -11,41 +13,6 @@ def get_confidence_label(log_count):
     elif log_count < 30:
         return "Possible pattern"
     return "Stronger pattern"
-
-
-def extract_warning_signs(real_logs):
-    if real_logs.empty or "notes" not in real_logs.columns:
-        return {}
-
-    counts = {}
-
-    for note in real_logs["notes"].dropna():
-        marker = "Early warning signs:"
-
-        if marker not in note:
-            continue
-
-        signs_text = note.split(marker, 1)[1].split("\n", 1)[0]
-
-        signs = [
-            s.strip()
-            for s in signs_text.split(",")
-            if s.strip()
-        ]
-
-        for sign in signs:
-            if sign.lower() == "not answered":
-                continue
-
-            counts[sign] = counts.get(sign, 0) + 1
-
-    return dict(
-        sorted(
-            counts.items(),
-            key=lambda x: x[1],
-            reverse=True,
-        )
-    )
 
 
 def render_insights(real_logs):

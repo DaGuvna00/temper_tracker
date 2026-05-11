@@ -3,48 +3,20 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-from core.analytics import strategy_by_trigger, top_danger_patterns
+from core.analytics import top_danger_patterns
 from core.database import (
     load_weekly_experiment,
     save_weekly_experiment,
     update_weekly_experiment,
 )
+from core.escalation import extract_warning_signs
+from core.experiments import (
+    EXPERIMENT_STATUS_OPTIONS,
+    build_behavior_experiment,
+    experiment_card_kind,
+)
+from core.interventions import strategy_by_trigger
 from ui.components import card, page_title
-
-
-def extract_warning_signs(real_logs):
-    if real_logs.empty or "notes" not in real_logs.columns:
-        return {}
-
-    counts = {}
-
-    for note in real_logs["notes"].dropna():
-        marker = "Early warning signs:"
-
-        if marker not in note:
-            continue
-
-        signs_text = note.split(marker, 1)[1].split("\n", 1)[0]
-
-        signs = [
-            s.strip()
-            for s in signs_text.split(",")
-            if s.strip()
-        ]
-
-        for sign in signs:
-            if sign.lower() == "not answered":
-                continue
-
-            counts[sign] = counts.get(sign, 0) + 1
-
-    return dict(
-        sorted(
-            counts.items(),
-            key=lambda x: x[1],
-            reverse=True,
-        )
-    )
 
 
 def build_weekly_narrative(this_week):
@@ -97,28 +69,6 @@ def build_next_focus(this_week):
         )
 
     return "Keep logging consistently so the pattern gets clearer.", "normal"
-
-
-def build_behavior_experiment(this_week):
-    if this_week.empty:
-        return "Log a few real moments this week so the app can suggest a useful experiment."
-
-    avg_intensity = round(this_week["intensity"].mean(), 1)
-    blowups = this_week[this_week["outcome"] == "Blew up"]
-
-    if not blowups.empty:
-        trigger = blowups["trigger"].mode().iloc[0]
-
-        return (
-            f"When {trigger} starts building, step away at 5/10 instead of waiting until it hits 7/10."
-        )
-
-    if avg_intensity >= 6:
-        return "Use Emergency Mode earlier this week, even when you think you can still handle it."
-
-    top_trigger = this_week["trigger"].mode().iloc[0]
-
-    return f"Keep noticing what helps you stay calm during {top_trigger}."
 
 
 def render_weekly_review(real_logs):
@@ -290,10 +240,10 @@ def render_weekly_review(real_logs):
         card(
             "Current experiment",
             saved_experiment["experiment_text"],
-            "success" if saved_experiment.get("status") in ["Worked", "Tried"] else "normal",
+            experiment_card_kind(saved_experiment.get("status")),
         )
 
-        status_options = ["Planned", "Tried", "Worked", "Didn’t work"]
+        status_options = EXPERIMENT_STATUS_OPTIONS
         current_status = saved_experiment.get("status", "Planned")
 
         status = st.selectbox(

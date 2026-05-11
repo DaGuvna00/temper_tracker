@@ -3,11 +3,12 @@ import streamlit as st
 
 st.set_page_config(page_title="Temper Tracker", page_icon="🧠", layout="wide")
 
-from core.analytics import clean_logs, get_adaptive_interventions
+from core.analytics import clean_logs
 from core.auth import USE_SUPABASE, current_user_id, logout, require_login
 from core.constants import PAGES
 from core.database import init_db, load_checkins, load_logs
-from core.state import init_session_state, reset_emergency_session, reset_trigger_flow
+from core.interventions import get_adaptive_interventions
+from core.state import init_session_state, reset_trigger_flow
 from pages_app.checkin import render_checkin
 from pages_app.emergency import render_emergency
 from pages_app.history import render_history
@@ -18,7 +19,6 @@ from pages_app.settings import render_settings
 from pages_app.weekly_review import render_weekly_review
 from ui.styles import apply_styles
 from pages_app.repair import render_repair
-from core.state import reset_trigger_flow
 
 
 apply_styles()

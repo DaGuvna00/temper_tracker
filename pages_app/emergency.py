@@ -1,25 +1,11 @@
 import streamlit as st
 
-from core.analytics import get_emergency_intervention, get_emergency_mantra
 from core.constants import REPAIR_OPTIONS, TRIGGER_OPTIONS
 from core.database import add_log
+from core.escalation import EARLY_WARNING_SIGNS
+from core.interventions import get_emergency_intervention, get_emergency_mantra
+from core.repair_engine import default_repair_status_for_outcome, should_route_to_repair
 from core.state import reset_emergency_session, reset_trigger_flow
-
-
-EARLY_WARNING_SIGNS = [
-    "Jaw clenched",
-    "Shoulders tight",
-    "Voice got sharper",
-    "Talking faster",
-    "Repeating myself",
-    "Wanted to argue/win",
-    "Couldn’t let it go",
-    "Felt rushed",
-    "Heat in chest/face",
-    "Needed space",
-    "Felt overstimulated",
-    "Wanted control",
-]
 
 
 def render_emergency(adaptive_interventions, real_logs):
@@ -40,7 +26,7 @@ def render_emergency(adaptive_interventions, real_logs):
         )
 
         selected_trigger = st.selectbox(
-            "What’s hitting you right now?",
+            "What's hitting you right now?",
             TRIGGER_OPTIONS,
         )
 
@@ -71,7 +57,7 @@ def render_emergency(adaptive_interventions, real_logs):
         st.markdown(
             f"""
             <div class='tt-mantra'>
-                🧠 <strong>Repeat:</strong><br>{mantra}
+                🔄 <strong>Repeat:</strong><br>{mantra}
             </div>
             """,
             unsafe_allow_html=True,
@@ -111,15 +97,15 @@ def render_emergency(adaptive_interventions, real_logs):
 
         st.divider()
 
-        if st.button("✅ I’m calmer", use_container_width=True):
+        if st.button("I'm calmer", use_container_width=True):
             st.session_state.trigger_outcome = "Stayed calm"
             st.rerun()
 
-        if st.button("➡️ Not yet — try another", use_container_width=True):
+        if st.button("Not yet try another", use_container_width=True):
             st.session_state.trigger_step += 1
             st.rerun()
 
-        if st.button("🔴 It escalated", use_container_width=True):
+        if st.button("🚨 It escalated", use_container_width=True):
             st.session_state.trigger_outcome = "Blew up"
             st.rerun()
 
@@ -164,7 +150,7 @@ def render_emergency(adaptive_interventions, real_logs):
             default_after = 4 if outcome == "Stayed calm" else 8
             intensity_after = st.slider("Intensity now", 1, 10, default_after)
 
-            default_repair = "Planned" if outcome == "Blew up" else "Not needed"
+            default_repair = default_repair_status_for_outcome(outcome)
             default_repair_index = REPAIR_OPTIONS.index(default_repair) if default_repair in REPAIR_OPTIONS else 0
 
             repaired = st.selectbox(
@@ -220,7 +206,7 @@ def render_emergency(adaptive_interventions, real_logs):
                 repaired,
             )
 
-            if outcome == "Blew up" and repaired in ["Yes", "Planned", "No"]:
+            if should_route_to_repair(outcome, repaired):
                 reset_trigger_flow()
                 st.session_state.current_page = "Repair"
                 st.rerun()
@@ -233,7 +219,7 @@ def render_emergency(adaptive_interventions, real_logs):
 
         st.markdown("### Need it faster?")
 
-        if st.button("⚡ Quick save and move on", use_container_width=True):
+        if st.button(" Quick save and move on", use_container_width=True):
             note_parts = []
 
             if mantra_used:
@@ -251,7 +237,7 @@ def render_emergency(adaptive_interventions, real_logs):
                 "Emergency mode",
                 strategy_used,
                 4 if outcome == "Stayed calm" else 8,
-                "Planned" if outcome == "Blew up" else "Not needed",
+                default_repair_status_for_outcome(outcome),
             )
 
             if outcome == "Blew up":

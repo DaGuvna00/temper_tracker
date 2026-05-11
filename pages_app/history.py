@@ -1,8 +1,9 @@
 import pandas as pd
 import streamlit as st
 
-from core.constants import DEFAULT_INTERVENTIONS, OUTCOME_OPTIONS, REPAIR_OPTIONS, TRIGGER_OPTIONS
+from core.constants import OUTCOME_OPTIONS, REPAIR_OPTIONS, TRIGGER_OPTIONS
 from core.database import delete_log, update_log
+from core.interventions import get_strategy_options
 from ui.components import outcome_color, page_title
 
 
@@ -31,7 +32,7 @@ def render_history(logs, real_logs):
                 after_val = int(row["intensity_after"]) if pd.notna(row["intensity_after"]) else int(row["intensity"])
                 intensity_after = c2.slider("Intensity after", 1, 10, after_val)
                 outcome = st.selectbox("Outcome", OUTCOME_OPTIONS, index=OUTCOME_OPTIONS.index(row["outcome"]) if row["outcome"] in OUTCOME_OPTIONS else 0)
-                strategy_options = ["None"] + [x["name"] for x in DEFAULT_INTERVENTIONS] + ["Other"]
+                strategy_options = get_strategy_options()
                 strategy_value = row["strategy"] if pd.notna(row["strategy"]) else "None"
                 strategy = st.selectbox("Strategy", strategy_options, index=strategy_options.index(strategy_value) if strategy_value in strategy_options else 0)
                 repaired = st.selectbox("Repair/apology?", REPAIR_OPTIONS, index=REPAIR_OPTIONS.index(row["repaired"]) if row["repaired"] in REPAIR_OPTIONS else 0)
